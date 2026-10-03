@@ -15,12 +15,8 @@ class BertAttentionLayer(nn.Module):
         self.project_to_values = nn.Linear(hidden_size, hidden_size)
         self.project_to_output = nn.Linear(hidden_size, hidden_size)
 
-    def split_to_heads(self, query, key, value) -> torch.Tensor:
-        queries = torch.split(query, self.head_dim, dim=-1).transpose(-2,1)
-        keys = torch.split(key, self.head_dim, dim=-1).transpose(-2,1)
-        values = torch.split(value, self.head_dim, dim=-1).transpose(-2,1)
-
-        return queries, keys, values
+    def split_to_heads(self, tensor: torch.Tensor) -> torch.Tensor:
+        return tensor.view(tensor.size(0), tensor.size(1), self.num_attention_heads, self.head_dim).transpose(1, 2)
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -30,11 +26,10 @@ class BertAttentionLayer(nn.Module):
         key = self.project_to_keys(x)
         value = self.project_to_values(x)
 
-        queries, keys, values = self.split_to_heads(query, key, value)
+        queries, keys, values = self.split_to_heads(query), self.split_to_heads(key), self.split_to_heads(value)
 
-        attention_outputs = []
-        for q,k,v in zip(queries, keys, values):
-            attention_output = F.scaled_dot_product_attention(
+
+        attention_output = F.scaled_dot_product_attention(
                 queries,
                 keys,
                 values,
@@ -42,10 +37,9 @@ class BertAttentionLayer(nn.Module):
                 dropout_p=0.0,
                 is_causal=False
             )
-            attention_outputs.append(attention_output)
 
-        attention_outputs = torch.cat(attention_outputs, dim=-1)
-        output = self.project_to_output(attention_outputs)
+        attention_output = attention_output.transpose(1, 2).reshape(x.size(0), x.size(1), self.hidden_size)
+        output = self.project_to_output(attention_output)
 
         return output
 
@@ -67,18 +61,30 @@ class BertFeedForwardLayer(nn.Module):
         return x
 
 class BertEncoderLayer(nn.Module):
-    def __init__(self, hidden_size: int, heads: int, intermediate_size: int, number_of_layers: int):
+    def __init__(self, hidden_size: int, heads: int, intermediate_size: int):
         super().__init__()
-        self.attention_layers = nn.ModuleList([BertAttentionLayer(hidden_size, heads) for _ in range(number_of_layers)])
-        self.feed_forward_layers = nn.ModuleList([BertFeedForwardLayer(hidden_size, intermediate_size) for _ in range(number_of_layers)])
-        self.projection = nn.Linear(hidden_size, hidden_size)
+        self.attention_layers = BertAttentionLayer(hidden_size, heads)
+        self.attention_norms = nn.LayerNorm(hidden_size)
+
+        self.feed_forward_layers = BertFeedForwardLayer(hidden_size, intermediate_size)
+        self.feed_forward_norms = nn.LayerNorm(hidden_size)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        for attention_layer, feed_forward_layer in zip(self.attention_layers, self.feed_forward_layers):
-            attention_output = attention_layer(x)
-            x = x + attention_output  # Residual connection
-            feed_forward_output = feed_forward_layer(x)
-            x = x + feed_forward_output  # Residual connection
-            x = F.softmax(self.projection(x))  # Optional projection layer
+        attention_output = self.attention_layers(x)
+        x = self.attention_norms(x + attention_output)  # Residual connection
+        feed_forward_output = self.feed_forward_layers(x)
+        x = self.feed_forward_norms(x + feed_forward_output)
 
+        return x
+
+class BertEncoder(nn.Module):
+    def __init__(self, hidden_size: int, heads: int, intermediate_size: int, num_layers: int):
+        super().__init__()
+        self.layers = nn.ModuleList(
+            [BertEncoderLayer(hidden_size, heads, intermediate_size) for _ in range(num_layers)]
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for layer in self.layers:
+            x = layer(x)
         return x
