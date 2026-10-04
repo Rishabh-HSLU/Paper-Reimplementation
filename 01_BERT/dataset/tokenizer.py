@@ -12,13 +12,13 @@ class BPEWordTokenizer:
         unknown_token_id: Index of the unknown token.
         tokenized_corpus: Cached tokenized corpus after BPE training.
     """
-    UNKNOWN_TOKEN = ""
-    PAD_TOKEN = ""
-    END_WORD = ""
+    UNKNOWN_TOKEN = "<UNK>"
+    PAD_TOKEN = "<PAD>"
+    END_WORD = "</w>"
     
-    CLS_TOKEN = ""
-    MASK_TOKEN = ""
-    SEP_TOKEN = ""
+    CLS_TOKEN = "<CLS>"
+    MASK_TOKEN = "<MASK>"
+    SEP_TOKEN = "<SEP>"
     
     def __init__(
         self, 
@@ -50,13 +50,23 @@ class BPEWordTokenizer:
             vocabulary_set.update(required_chars)
             
             self.vocabulary = (
-                [self.PAD_TOKEN] + sorted(vocabulary_set) + [self.UNKNOWN_TOKEN]
+                [self.PAD_TOKEN, self.UNKNOWN_TOKEN, self.MASK_TOKEN, self.CLS_TOKEN, self.SEP_TOKEN]
+                + sorted(vocabulary_set) 
             )
         else:
             self.vocabulary = vocabulary
             self.merges = [] #When there is a vocabulary not necesary
         
         
+        #Buld mapping ans det the vocabulary size
+        self.vocabulary_size = len(self.vocabulary)
+        self.token_to_index = {token : index for index, token in enumerate(self.vocabulary)}
+        self.index_to_token = {index : token for index, token in enumerate(self.vocabulary)}
+        self.pad_token_id = self.token_to_index[self.PAD_TOKEN]
+        self.unknown_token_id = self.token_to_index[self.UNKNOWN_TOKEN]
+        self.masked_token_id = self.token_to_index[self.MASK_TOKEN]
+        self.cls_token_id = self.token_to_index[self.CLS_TOKEN]
+        self.sep_token_id = self.token_to_index[self.SEP_TOKEN]
 
     def _split_text(self, text : str) -> list[str]:
         """
@@ -69,10 +79,61 @@ class BPEWordTokenizer:
             
             # Merge individual characters according to learned BPE merges
             for pair in self.merges:
-                chars = self.merge_pair_in_words(chars, pair)
-            tokens.extend(chars)
+                characters = self.merge_pair_in_words(characters, pair)
+            tokens.extend(characters)
         return tokens
     
+    def join_text(self, tokens : list[str]) -> str:
+        #Join subwords tokens into full string
+        words = []
+        current_word = []
+        for token in tokens:
+            if token.endswith(self.END_WORD): #Check whether token endws with a word boundary marker
+                current_word.append(token.replace(self.END_WORD, "")) #Remove the end of word marker
+                words.append("".join(current_word)) #Join the current word
+                current_word = [] #Reset the current word
+            else:
+                current_word.append(token)
+        
+        if current_word: #If there are any remaining tokens that do not end with the end of word marker, join them as a single word
+            words.append("".join(current_word))
+        return " ".join(words).strip()
+    
+    def encoder(self, text : str) -> list[int]:
+        """    
+        Encode a string into a list of tokens indices
+        """
+        tokens_ids = []
+        for token in self._split_text(text=text):
+            token_id = self.token_to_index.get(token, self.unknown_token_id)
+            tokens_ids.append(token_id)
+        final_tokens = [self.cls_token_id] + tokens_ids + [self.sep_token_id]
+        return final_tokens
+    
+    def decoder(self, tokens_ids): 
+        """
+        Decode list of tokens IDs back to original text
+        """
+        if hasattr(tokens_ids, "flatten"):
+            tokens_ids = tokens_ids.flatten().tolist()
+        
+        elif hasattr(tokens_ids, "tolist"):
+            tokens_ids = tokens_ids.tolist()
+        
+        
+        elif isinstance(tokens_ids, int):
+            tokens_ids = [tokens_ids]
+            
+        tokens = []
+        for token_id in tokens_ids:
+            if token_id in [self.cls_token_id, self.sep_token_id, self.pad_token_id]:
+                continue
+            tokens.append(self.index_to_token.get(token_id, self.unknown_token_id)) # Usually just map to [UNK]
+        
+        return self.join_text(tokens=tokens)
+    
+    def get_vocab_size(self):
+        return len(self.token_to_index)
     
     def bpe_initialize(self, dataset : list[str]):
         """
@@ -120,7 +181,6 @@ class BPEWordTokenizer:
                 index += 1
         return new_word
     
-    
     def learn_bpe(self, dataset : list[str], num_merges : int):
         """
         Learns byte pair encoding (BPE) merge operations from a dataset
@@ -150,57 +210,5 @@ class BPEWordTokenizer:
         #Returning the list of merges, the vocabulary, and the final tokenized corpus
         return merges, vocabulary, corpus
         
-    """
+   
     
-    def joint_text(self, tokens : list[str]) -> str:
-        """
-        Join subwords tokens into full string∫
-        """
-        words = []
-        for token in tokens:
-            if token.startswith("##"):
-                if words:
-                    words[-1] += token[2:] # Remove ## 
-        
-        else:
-            words.append(token)
-
-        return " ".join(words).strip()
-    
-    """ def encoder(self, text : str) -> list[int]:
-        
-        Encode a string into a list of tokens indices
-        
-        tokens_ids = []
-        for token in self._split_text(text=text):
-            token_id = self.text_to_token_ids.get(token, self.unk_token_id)
-            tokens_ids.append(token_id)
-        final_tokens = [self.cls_token_id] + tokens_ids + [self.sep_token_id]
-        return final_tokens"""
-    
-    """
-    def decoder(self, tokens_ids): 
-        
-        Decode list of tokens IDs back to original text
-        
-        if hasattr(tokens_ids, "flatten"):
-            tokens_ids = tokens_ids.flatten().tolist()
-        
-        elif hasattr(tokens_ids, "tolist"):
-            tokens_ids = tokens_ids.tolist()
-        
-        
-        elif isinstance(tokens_ids, int):
-            tokens_ids = [tokens_ids]
-            
-        tokens = []
-        for token_id in tokens_ids:
-            if token_id in [self.cls_token_id, self.sep_token_id, self.pad_token_id]:
-                continue
-            tokens.append(self.tokens_ids_to_text.get(token_id, self.unk_token_id)) # Usually just map to [UNK]
-        
-        return self.joint_text(tokens=tokens)
-    
-    def get_vocab_size(self):
-        return len(self.text_to_token_ids)
-        """
