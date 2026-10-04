@@ -1,5 +1,5 @@
 from collections import Counter
-import re
+import tqdm
 import string
 class BPEWordTokenizer:
     """
@@ -110,32 +110,27 @@ class BPEWordTokenizer:
         final_tokens = [self.cls_token_id] + tokens_ids + [self.sep_token_id]
         return final_tokens
     
-    def decoder(self, tokens_ids): 
+    def decoder(self, tokens_ids : int | list[int]) -> str: 
         """
         Decode list of tokens IDs back to original text
         """
-        if hasattr(tokens_ids, "flatten"):
-            tokens_ids = tokens_ids.flatten().tolist()
         
-        elif hasattr(tokens_ids, "tolist"):
-            tokens_ids = tokens_ids.tolist()
-        
-        
-        elif isinstance(tokens_ids, int):
+        if isinstance(tokens_ids, int):
             tokens_ids = [tokens_ids]
             
         tokens = []
         for token_id in tokens_ids:
             if token_id in [self.cls_token_id, self.sep_token_id, self.pad_token_id]:
                 continue
-            tokens.append(self.index_to_token.get(token_id, self.unknown_token_id)) # Usually just map to [UNK]
-        
+            tokens.append(
+                self.index_to_token.get(token_id, self.UNKNOWN_TOKEN + self.END_WORD)) # Usually just map to [UNK]
+
         return self.join_text(tokens=tokens)
     
     def get_vocab_size(self):
         return len(self.token_to_index)
     
-    def bpe_initialize(self, dataset : list[str]):
+    def bpe_initialize(self, dataset : list[str]) -> tuple[list[list[str]], set[str]]:
         """
         Implements the initialization step of the byte pair encoding algorithm
         """
@@ -151,7 +146,7 @@ class BPEWordTokenizer:
         
         return corpus, vocabulary
         
-    def get_pair_frequencies(self, corpus : list[list[str]]) -> Counter[tuple[str,str], int]:
+    def get_pair_frequencies(self, corpus : list[list[str]]) -> Counter[tuple[str, str], int]:
         """
         Calculates the frequency of adjacent character pairs in a corpus
         """
@@ -181,14 +176,14 @@ class BPEWordTokenizer:
                 index += 1
         return new_word
     
-    def learn_bpe(self, dataset : list[str], num_merges : int):
+    def learn_bpe(self, dataset : list[str], num_merges : int) -> tuple[list[tuple[str, str]], list[list[list[str]]], set[str]]:
         """
         Learns byte pair encoding (BPE) merge operations from a dataset
         """
         corpus, vocabulary = self.bpe_initialize(dataset=dataset) # Step 1: Initialize corpus as a list of lust of characters
         
         merges = []
-        for _  in range(num_merges):
+        for _  in tqdm.tqdm(range(num_merges), desc="Learning BPE Merges"):
             pair_freqs = self.get_pair_frequencies(corpus) #Step 2: Count all the pair frequencies
             if not pair_freqs:
                 break
@@ -208,7 +203,7 @@ class BPEWordTokenizer:
             corpus = new_corpus
         
         #Returning the list of merges, the vocabulary, and the final tokenized corpus
-        return merges, vocabulary, corpus
+        return merges, corpus, vocabulary
         
    
     
