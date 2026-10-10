@@ -12,13 +12,13 @@ class BPEWordTokenizer:
         unknown_token_id: Index of the unknown token.
         tokenized_corpus: Cached tokenized corpus after BPE training.
     """
-    UNKNOWN_TOKEN = "<UNK>"
-    PAD_TOKEN = "<PAD>"
-    END_WORD = "</w>"
+    UNKNOWN_TOKEN = "[UNK]"
+    PAD_TOKEN = "[PAD]"
+    END_WORD = "[END_WORD] "
     
-    CLS_TOKEN = "<CLS>"
-    MASK_TOKEN = "<MASK>"
-    SEP_TOKEN = "<SEP>"
+    CLS_TOKEN = "[CLS]"
+    MASK_TOKEN = "[MASK]"
+    SEP_TOKEN = "[SEP]"
     
     def __init__(
         self, 
